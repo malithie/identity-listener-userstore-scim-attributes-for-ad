@@ -17,40 +17,20 @@
  */
 package org.wso2.identity.sample;
 
-import org.apache.commons.lang.RandomStringUtils;
-import org.apache.commons.lang.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.wso2.carbon.CarbonException;
-import org.wso2.carbon.context.PrivilegedCarbonContext;
-import org.wso2.carbon.core.util.AnonymousSessionUtil;
-import org.wso2.carbon.core.util.PermissionUpdateUtil;
-import org.wso2.carbon.identity.application.authentication.framework.exception.FrameworkException;
-import org.wso2.carbon.identity.application.authentication.framework.handler.provisioning.impl.DefaultProvisioningHandler;
-import org.wso2.carbon.identity.application.authentication.framework.util.FrameworkUtils;
 import org.wso2.carbon.identity.core.AbstractIdentityUserOperationEventListener;
 import org.wso2.carbon.identity.core.util.IdentityCoreConstants;
-import org.wso2.carbon.identity.core.util.IdentityUtil;
-import org.wso2.carbon.identity.user.profile.mgt.UserProfileAdmin;
-import org.wso2.carbon.identity.user.profile.mgt.UserProfileException;
-import org.wso2.carbon.registry.core.service.RegistryService;
-import org.wso2.carbon.user.core.UserRealm;
 import org.wso2.carbon.user.core.UserStoreException;
-import org.wso2.carbon.user.core.UserCoreConstants;
 import org.wso2.carbon.user.core.UserStoreManager;
-import org.wso2.carbon.user.core.common.AbstractUserOperationEventListener;
 import org.wso2.carbon.user.core.ldap.ActiveDirectoryUserStoreManager;
-import org.wso2.carbon.user.core.service.RealmService;
-import org.wso2.carbon.user.core.util.UserCoreUtil;
-import org.wso2.carbon.utils.multitenancy.MultitenantUtils;
-import org.wso2.identity.sample.internal.SCIMIDRemoverServiceComponent;
 
-import java.security.SecureRandom;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.Map;
 
 /**
  * Avoid manually updating auto-generated attributes in the Active Directory
@@ -58,15 +38,18 @@ import java.util.*;
 public class SCIMIDRemoverUserOperationEventListener extends AbstractIdentityUserOperationEventListener {
 
 
-    private static Log log = LogFactory.getLog(SCIMIDRemoverUserOperationEventListener.class);
     public static final String ID_URI = "urn:scim:schemas:core:1.0:id";
     public static final String META_CREATED_URI = "urn:scim:schemas:core:1.0:meta.created";
     public static final String META_LAST_MODIFIED_URI = "urn:scim:schemas:core:1.0:meta.lastModified";
     public static final String META_LOCATION_URI = "urn:scim:schemas:core:1.0:meta.location";
+    private static Log log = LogFactory.getLog(SCIMIDRemoverUserOperationEventListener.class);
 
     @Override
-    public boolean doPreAddUser(String userName, Object credential, String[] roleList, Map<String, String> claims, String profile, UserStoreManager userStoreManager) throws UserStoreException {
+    public boolean doPreAddUser(String userName, Object credential, String[] roleList, Map<String, String> claims,
+                                String profile, UserStoreManager userStoreManager) throws UserStoreException {
+
         log.info("doPreAddUser()");
+
         try {
             if (!isEnable() || !userStoreManager.isSCIMEnabled()) {
                 return true;
@@ -93,8 +76,11 @@ public class SCIMIDRemoverUserOperationEventListener extends AbstractIdentityUse
 
 
     @Override
-    public boolean doPostAddUser(String userName, Object credential, String[] roleList, Map<String, String> claims, String profile, UserStoreManager userStoreManager) throws UserStoreException {
+    public boolean doPostAddUser(String userName, Object credential, String[] roleList, Map<String, String> claims,
+                                 String profile, UserStoreManager userStoreManager) throws UserStoreException {
+
         log.info("doPostAddUser()");
+
         try {
             if (!isEnable() || !userStoreManager.isSCIMEnabled()) {
                 return true;
@@ -107,15 +93,29 @@ public class SCIMIDRemoverUserOperationEventListener extends AbstractIdentityUse
             return true;
         }
 
-        claims.put(SCIMIDRemoverUserOperationEventListener.ID_URI, "11-4322-4322");
+        String[] claimURIs = new String[]{SCIMIDRemoverUserOperationEventListener.ID_URI,
+                SCIMIDRemoverUserOperationEventListener.META_CREATED_URI, SCIMIDRemoverUserOperationEventListener
+                .META_LAST_MODIFIED_URI};
+
+        log.info("Retrieving claim values for : " + Arrays.deepToString(claimURIs));
+
+        Map<String, String> claimURLValueMappings = userStoreManager.getUserClaimValues(userName, claimURIs, profile);
+
+        for (Map.Entry<String, String> entry : claimURLValueMappings.entrySet()) {
+            log.info("Setting claim : " + entry.getKey() + " value: " + entry.getValue());
+            claims.put(entry.getKey(), entry.getValue());
+        }
+
         return true;
     }
 
 
     @Override
-    public boolean doPreSetUserClaimValues(String userName, Map<String, String> claims,
-                                           String profileName, UserStoreManager userStoreManager)
-            throws UserStoreException {
+    public boolean doPreSetUserClaimValues(String userName, Map<String, String> claims, String profileName,
+                                           UserStoreManager userStoreManager) throws UserStoreException {
+
+        log.info("doPreSetUserClaimValues()");
+
         try {
             if (!isEnable() || !userStoreManager.isSCIMEnabled()) {
                 return true;
@@ -124,20 +124,28 @@ public class SCIMIDRemoverUserOperationEventListener extends AbstractIdentityUse
             throw new UserStoreException("Error while reading isScimEnabled from userstore manager", e);
         }
 
-
         if (!(userStoreManager instanceof ActiveDirectoryUserStoreManager)) {
             return true;
         }
 
-        log.info("removing scim claim: " + SCIMIDRemoverUserOperationEventListener.META_LAST_MODIFIED_URI);
+        log.info("removing scim: " + SCIMIDRemoverUserOperationEventListener.ID_URI);
+        claims.remove(SCIMIDRemoverUserOperationEventListener.ID_URI);
+        log.info("removing scim: " + SCIMIDRemoverUserOperationEventListener.META_CREATED_URI);
+        claims.remove(SCIMIDRemoverUserOperationEventListener.META_CREATED_URI);
+        log.info("removing scim: " + SCIMIDRemoverUserOperationEventListener.META_LAST_MODIFIED_URI);
         claims.remove(SCIMIDRemoverUserOperationEventListener.META_LAST_MODIFIED_URI);
+        log.info("removing scim: " + SCIMIDRemoverUserOperationEventListener.META_LOCATION_URI);
+        claims.remove(SCIMIDRemoverUserOperationEventListener.META_LOCATION_URI);
+
         return true;
     }
 
     @Override
-    public boolean doPostGetUserClaimValues(String userName, String[] claims, String profileName,
-                                            Map<String, String> claimMap, UserStoreManager userStoreManager)
-            throws UserStoreException {
+    public boolean doPostGetUserClaimValues(String userName, String[] claims, String profileName, Map<String, String>
+            claimMap, UserStoreManager userStoreManager) throws UserStoreException {
+
+        log.info("doPostGetUserClaimValues()");
+
         try {
             if (!isEnable() || !userStoreManager.isSCIMEnabled()) {
                 return true;
@@ -154,13 +162,15 @@ public class SCIMIDRemoverUserOperationEventListener extends AbstractIdentityUse
             String createdTime = claimMap.get(SCIMIDRemoverUserOperationEventListener.META_CREATED_URI);
 
             try {
-                log.info(">>>>>>>>>>>>>>>>>>>>>>>>>>> Before: " + SCIMIDRemoverUserOperationEventListener.META_CREATED_URI + " : " + createdTime);
+                log.info(">>>>>>>>>>>>>>>>>>>>>>>>>>> Before: " + SCIMIDRemoverUserOperationEventListener
+                        .META_CREATED_URI + " : " + createdTime);
                 String formattedDate = convertDateTimeFormat(createdTime);
-                log.info(">>>>>>>>>>>>>>>>>>>>>>>>>>> After: " + SCIMIDRemoverUserOperationEventListener.META_CREATED_URI + " : " + formattedDate);
+                log.info(">>>>>>>>>>>>>>>>>>>>>>>>>>> After: " + SCIMIDRemoverUserOperationEventListener
+                        .META_CREATED_URI + " : " + formattedDate);
                 claimMap.put(SCIMIDRemoverUserOperationEventListener.META_CREATED_URI, formattedDate);
             } catch (ParseException e) {
-                log.error(">>>>>>>>>>>>>>>>>>>>>>>>>>> Error while converting claim: "
-                        + SCIMIDRemoverUserOperationEventListener.META_CREATED_URI, e);
+                log.error(">>>>>>>>>>>>>>>>>>>>>>>>>>> Error while converting claim: " +
+                        SCIMIDRemoverUserOperationEventListener.META_CREATED_URI, e);
             }
         }
 
@@ -168,13 +178,15 @@ public class SCIMIDRemoverUserOperationEventListener extends AbstractIdentityUse
             String modifiedTime = claimMap.get(SCIMIDRemoverUserOperationEventListener.META_LAST_MODIFIED_URI);
 
             try {
-                log.info(">>>>>>>>>>>>>>>>>>>>>>>>>>> Before: " + SCIMIDRemoverUserOperationEventListener.META_LAST_MODIFIED_URI + " : " + modifiedTime);
+                log.info(">>>>>>>>>>>>>>>>>>>>>>>>>>> Before: " + SCIMIDRemoverUserOperationEventListener
+                        .META_LAST_MODIFIED_URI + " : " + modifiedTime);
                 String formattedDate = convertDateTimeFormat(modifiedTime);
-                log.info(">>>>>>>>>>>>>>>>>>>>>>>>>>> After: " + SCIMIDRemoverUserOperationEventListener.META_LAST_MODIFIED_URI + " : " + formattedDate);
+                log.info(">>>>>>>>>>>>>>>>>>>>>>>>>>> After: " + SCIMIDRemoverUserOperationEventListener
+                        .META_LAST_MODIFIED_URI + " : " + formattedDate);
                 claimMap.put(SCIMIDRemoverUserOperationEventListener.META_LAST_MODIFIED_URI, formattedDate);
             } catch (ParseException e) {
-                log.error(">>>>>>>>>>>>>>>>>>>>>>>>>>> Error while converting claim: "
-                        + SCIMIDRemoverUserOperationEventListener.META_LAST_MODIFIED_URI, e);
+                log.error(">>>>>>>>>>>>>>>>>>>>>>>>>>> Error while converting claim: " +
+                        SCIMIDRemoverUserOperationEventListener.META_LAST_MODIFIED_URI, e);
             }
         }
 
